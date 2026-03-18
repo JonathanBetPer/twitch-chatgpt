@@ -1,0 +1,222 @@
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { randomUUID } from "crypto";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(__dirname, "data");
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+const FILES = {
+  channel: path.join(DATA_DIR, "channel.json"),
+  users: path.join(DATA_DIR, "users.json"),
+  faqs: path.join(DATA_DIR, "faqs.json"),
+  history: path.join(DATA_DIR, "history.json"),
+};
+
+function readJSON(file, defaultValue) {
+  try {
+    if (!fs.existsSync(file)) return defaultValue;
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return defaultValue;
+  }
+}
+
+function writeJSON(file, data) {
+  fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+}
+
+export class ContextManager {
+  constructor() {
+    // Initialise files with defaults if they don't exist
+    if (!fs.existsSync(FILES.channel)) {
+      writeJSON(FILES.channel, {
+        name: "",
+        description: "",
+        topics: [],
+        language: "es",
+        links: {},
+        personality:
+          "You are a friendly and helpful YouTube chatbot. Be concise, engaging and fun.",
+      });
+    }
+    if (!fs.existsSync(FILES.users)) writeJSON(FILES.users, {});
+    if (!fs.existsSync(FILES.faqs)) writeJSON(FILES.faqs, []);
+    if (!fs.existsSync(FILES.history)) writeJSON(FILES.history, {});
+  }
+
+  // ── Channel ──────────────────────────────────────────────────────────────
+
+  getChannelContext() {
+    return readJSON(FILES.channel, {});
+  }
+
+  updateChannelContext(partial) {
+    const current = this.getChannelContext();
+    const updated = { ...current, ...partial };
+    writeJSON(FILES.channel, updated);
+    return updated;
+  }
+
+  /**
+   * Builds the system prompt string by combining channel context + FAQs.
+   */
+  buildSystemPrompt() {
+    const ch = this.getChannelContext();
+    const faqs = this.getAllFAQs();
+
+    let prompt = ch.personality || "You are a helpful YouTube chatbot.";
+
+    if (ch.name) prompt += `\n\nChannel name: ${ch.name}`;
+    if (ch.description) prompt += `\nChannel description: ${ch.description}`;
+    if (ch.topics?.length) prompt += `\nMain topics: ${ch.topics.join(", ")}`;
+    if (ch.language) prompt += `\nAlways respond in: ${ch.language}`;
+
+    if (ch.links && Object.keys(ch.links).length) {
+      const linkStr = Object.entries(ch.links)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ");
+      prompt += `\nChannel links: ${linkStr}`;
+    }
+
+    if (faqs.length) {
+      prompt += "\n\nKnown FAQs (use these for accurate answers):";
+      faqs.forEach((f) => {
+        prompt += `\nQ: ${f.question}\nA: ${f.answer}`;
+      });
+    }
+
+    prompt +=
+      "\n\nKeep responses short (max 2 sentences) and suitable for live chat.";
+    prompt += '\nNever start a message with "!" or "/".';
+
+    return prompt;
+  }
+
+  // ── Users ────────────────────────────────────────────────────────────────
+
+  getAllUsers() {
+    return readJSON(FILES.users, {});
+  }
+
+  getUser(username) {
+    const users = this.getAllUsers();
+    return users[username] || null;
+  }
+
+  upsertUser(username, data) {
+    const users = this.getAllUsers();
+    users[username] = {
+      ...(users[username] || { createdAt: new Date().toISOString() }),
+      ...data,
+      updatedAt: new Date().toISOString(),
+    };
+    writeJSON(FILES.users, users);
+    return users[username];
+  }
+
+  deleteUser(username) {
+    const users = this.getAllUsers();
+    delete users[username];
+    writeJSON(FILES.users, users);
+  }
+
+  /**
+   * Returns a short text snippet about a user to inject into the prompt.
+   */
+  buildUserContext(username) {
+    const user = this.getUser(username);
+    if (!user) return "";
+
+    let ctx = `\nContext about this viewer (${username}):`;
+    if (user.notes) ctx += ` ${user.notes}.`;
+    if (user.preferences)
+      ctx += ` Preferences: ${JSON.stringify(user.preferences)}.`;
+    if (user.tags?.length) ctx += ` Tags: ${user.tags.join(", ")}.`;
+    return ctx;
+  }
+
+  // ── FAQs ─────────────────────────────────────────────────────────────────
+
+  getAllFAQs() {
+    return readJSON(FILES.faqs, []);
+  }
+
+  addFAQ(question, answer) {
+    const faqs = this.getAllFAQs();
+    const faq = {
+      id: randomUUID(),
+      question,
+      answer,
+      createdAt: new Date().toISOString(),
+    };
+    faqs.push(faq);
+    writeJSON(FILES.faqs, faqs);
+    return faq;
+  }
+
+  updateFAQ(id, data) {
+    const faqs = this.getAllFAQs();
+    const idx = faqs.findIndex((f) => f.id === id);
+    if (idx === -1) return null;
+    faqs[idx] = { ...faqs[idx], ...data, updatedAt: new Date().toISOString() };
+    writeJSON(FILES.faqs, faqs);
+    return faqs[idx];
+  }
+
+  deleteFAQ(id) {
+    const faqs = this.getAllFAQs();
+    const idx = faqs.findIndex((f) => f.id === id);
+    if (idx === -1) return false;
+    faqs.splice(idx, 1);
+    writeJSON(FILES.faqs, faqs);
+    return true;
+  }
+
+  // ── Conversation History ─────────────────────────────────────────────────
+
+  getUserHistory(username) {
+    const history = readJSON(FILES.history, {});
+    return history[username] || [];
+  }
+
+  addToHistory(username, userMessage, botResponse) {
+    const history = readJSON(FILES.history, {});
+    if (!history[username]) history[username] = [];
+
+    history[username].push({
+      timestamp: new Date().toISOString(),
+      user: userMessage,
+      bot: botResponse,
+    });
+
+    // Keep only the last 50 exchanges per user to avoid unbounded growth
+    if (history[username].length > 50) {
+      history[username] = history[username].slice(-50);
+    }
+
+    writeJSON(FILES.history, history);
+  }
+
+  clearUserHistory(username) {
+    const history = readJSON(FILES.history, {});
+    delete history[username];
+    writeJSON(FILES.history, history);
+  }
+
+  /**
+   * Returns the last N messages for a user as an OpenAI messages array.
+   */
+  getHistoryAsMessages(username, maxTurns = 5) {
+    const turns = this.getUserHistory(username).slice(-maxTurns);
+    const messages = [];
+    for (const turn of turns) {
+      messages.push({ role: "user", content: turn.user });
+      messages.push({ role: "assistant", content: turn.bot });
+    }
+    return messages;
+  }
+}

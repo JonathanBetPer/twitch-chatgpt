@@ -1,0 +1,84 @@
+import fetch from "node-fetch";
+
+const OLLAMA_BASE_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+
+export class OllamaOperations {
+  constructor(modelName, historyLength, contextManager) {
+    this.modelName = modelName;
+    this.historyLength = historyLength;
+    this.contextManager = contextManager;
+  }
+
+  /**
+   * Main chat method.
+   * Calls the Ollama /api/chat endpoint with full context.
+   *
+   * @param {string} username
+   * @param {string} message
+   * @returns {Promise<string>}
+   */
+  async chat(username, message) {
+    // 1. System prompt = channel context + FAQs + personality
+    const systemPrompt = this.contextManager.buildSystemPrompt();
+
+    // 2. Per-user context appended to system prompt
+    const userCtx = this.contextManager.buildUserContext(username);
+    const fullSystem = userCtx ? `${systemPrompt}\n${userCtx}` : systemPrompt;
+
+    // 3. Conversation history as Ollama message array
+    const historyMessages = this.contextManager.getHistoryAsMessages(
+      username,
+      this.historyLength
+    );
+
+    // 4. Current user message
+    const messages = [
+      { role: "system", content: fullSystem },
+      ...historyMessages,
+      { role: "user", content: `${username}: ${message}` },
+    ];
+
+    const body = {
+      model: this.modelName,
+      messages,
+      stream: false,
+      options: {
+        temperature: 0.8,
+        num_predict: 150, // Keep replies short for live chat
+        repeat_penalty: 1.1,
+      },
+    };
+
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`Ollama error ${response.status}: ${err}`);
+    }
+
+    const data = await response.json();
+    const reply = data?.message?.content?.trim();
+
+    if (!reply) throw new Error("Empty response from Ollama");
+    return reply;
+  }
+
+  /**
+   * Checks that Ollama is reachable and the model is available.
+   * Returns { ok: boolean, models: string[] }
+   */
+  static async healthCheck() {
+    try {
+      const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+      const data = await res.json();
+      const models = (data.models || []).map((m) => m.name);
+      return { ok: true, models };
+    } catch (err) {
+      return { ok: false, error: err.message, models: [] };
+    }
+  }
+}

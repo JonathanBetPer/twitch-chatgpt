@@ -1,148 +1,223 @@
-# ChatGPT Twitch Bot Documentation
+# YouTube AI Chatbot API
 
-**Important Notice: Cyclic is no longer supported for deployment. Please use Render for deploying this bot.**
-
-Your support means the world to me! ❤️
-
-☕ [Buy me a coffee to support me](https://www.buymeacoffee.com/osetinhas) ☕
-
-Join our Discord community:
-
-[https://discord.gg/pcxybrpDx6](https://discord.gg/pcxybrpDx6)
+AI-powered chatbot for YouTube live chat. Exposes a simple REST API so any external system (StreamElements, bots, scripts…) can request responses.
 
 ---
-
-## Overview
-
-This is a simple Node.js chatbot with ChatGPT integration, designed to work with Twitch streams. It uses the Express framework and can operate in two modes: chat mode (with context of previous messages) or prompt mode (without context of previous messages).
 
 ## Features
 
-- Responds to Twitch chat commands with ChatGPT-generated responses.
-- Can operate in chat mode with context or prompt mode without context.
-- Supports Text-to-Speech (TTS) for responses.
-- Customizable via environment variables.
-- Deployed on Render for 24/7 availability.
+- **Contextual AI replies** via Ollama (llama3 by default) — 100% local, no API keys needed
+- **Channel context** — teach the bot about your channel, topics and links
+- **Per-user memory** — store notes and preferences for frequent viewers
+- **FAQs** — predefined Q&A pairs injected into every prompt
+- **Conversation history** — last N turns remembered per user
+- **Dashboard UI** at `/`
 
 ---
 
-## Setup Instructions
+## Setup
 
-### 1. Fork the Repository
+### 1. Clone & install
 
-Login to GitHub and fork this repository to get your own copy.
-
-### 2. Fill Out Your Context File
-
-Open `file_context.txt` and write down all your background information for GPT. This content will be included in every request.
-
-### 3. Create an OpenAI Account
-
-Create an account on [OpenAI](https://platform.openai.com) and set up billing limits if necessary.
-
-### 4. Get Your OpenAI API Key
-
-Generate an API key on the [API keys page](https://platform.openai.com/account/api-keys) and store it securely.
-
-### 5. Deploy on Render
-
-Render allows you to run your bot 24/7 for free. Follow these steps:
-
-#### 5.1. Deploy to Render
-
-Click the button below to deploy:
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
-
-#### 5.2. Login with GitHub
-
-Log in with your GitHub account and select your forked repository for deployment.
-
-### 6. Set Environment Variables
-
-Go to the variables/environment tab in your Render deployment and set the following variables:
-
-#### 6.1. Required Variables
-
-- `OPENAI_API_KEY`: Your OpenAI API key.
-
-#### 6.2. Optional Variables
-
-##### 6.2.1. Nightbot/Streamelements Integration Variable
-- `GPT_MODE`: (default: `CHAT`) Mode of operation, can be `CHAT` or `PROMPT`.
-
-##### 6.2.2. All Modes Variables
-- `HISTORY_LENGTH`: (default: `5`) Number of previous messages to include in context.
-- `MODEL_NAME`: (default: `gpt-3.5-turbo`) The OpenAI model to use. You can check the available models [here](https://platform.openai.com/docs/models/). 
-- `COMMAND_NAME`: (default: `!gpt`) The command that triggers the bot. You can set more than one command by separating them with a comma (e.g. `!gpt,!chatbot`).
-- `CHANNELS`: List of Twitch channels the bot will join (comma-separated). (e.g. `channel1,channel2`; do not include www.twitch.tv)
-- `SEND_USERNAME`: (default: `true`) Whether to include the username in the message sent to OpenAI.
-- `ENABLE_TTS`: (default: `false`) Whether to enable Text-to-Speech.
-- `ENABLE_CHANNEL_POINTS`: (default: `false`) Whether to enable channel points integration.
-- `COOLDOWN_DURATION`: (default: `10`) Cooldown duration in seconds between responses.
-
-#### 6.3. Twitch Integration Variables
-
-- `TWITCH_AUTH`: OAuth token for your Twitch bot.
-  - Go to https://twitchapps.com/tmi/ and click on Connect with Twitch
-  - Copy the token from the page and paste it in the TWITCH_AUTH variable  
-  - ⚠️ THIS TOKEN MIGHT EXPIRE AFTER A FEW DAYS, SO YOU MIGHT HAVE TO REPEAT THIS STEP EVERY FEW DAYS ⚠️
-
-### 7. Text-To-Speech (TTS) Setup
-
-Your Render URL (e.g., `https://your-twitch-bot.onrender.com/`) can be added as a widget to your stream for TTS integration.
-
----
-
-## Usage
-
-### Commands
-
-You can interact with the bot using Twitch chat commands. By default, the command is `!gpt`. You can change this in the environment variables.
-
-### Example
-
-To use the `!gpt` command:
-
-```twitch
-!gpt What is the weather today?
+```bash
+git clone <your-repo>
+cd yt-chatbot
+npm install
 ```
 
-The bot will respond with an OpenAI-generated message.
+### 2. Instalar y arrancar Ollama
 
-### Streamelements and Nightbot Integration
+```bash
+# Instalar Ollama (Linux/Mac)
+curl -fsSL https://ollama.com/install.sh | sh
 
-#### Streamelements
+# Descargar el modelo
+ollama pull llama3
 
-Create a custom command with the response:
-
-```twitch
-$(urlfetch https://your-render-url.onrender.com/gpt/"${user}:${queryescape ${1:}}")
+# Arrancar el servidor (si no está ya corriendo)
+ollama serve
 ```
 
-#### Nightbot
+### 3. Variables de entorno
 
-Create a custom command with the response:
+| Variable         | Default                  | Description                       |
+| ---------------- | ------------------------ | --------------------------------- |
+| `OLLAMA_URL`     | `http://localhost:11434` | URL del servidor Ollama           |
+| `MODEL_NAME`     | `llama3`                 | Modelo a usar                     |
+| `HISTORY_LENGTH` | `10`                     | Turns de conversación por usuario |
+| `PORT`           | `3000`                   | Puerto HTTP                       |
 
-```twitch
-!addcom !gptcmd $(urlfetch https://twitch-chatgpt-bot.onrender.com/gpt/$(user):$(querystring))
+### 4. Arrancar el bot
+
+```bash
+npm start
+# o para desarrollo (auto-restart):
+npm run dev
 ```
 
-Replace `your-render-url.onrender.com` with your actual Render URL.
-Replace `gptcmd` with your desired command name.
-Remove `$(user):` if you don't want to include the username in the message sent to OpenAI.
+Al arrancar, el bot verifica automáticamente que Ollama esté disponible y que el modelo esté descargado, mostrando warnings claros si algo falla.
+
+### 5. Configurar el contexto del canal
+
+```bash
+curl -X PUT http://localhost:3000/context/channel \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Mi Canal",
+    "description": "Contenido semanal de tech y gaming",
+    "topics": ["tech", "gaming", "tutoriales"],
+    "language": "es",
+    "links": {
+      "youtube": "https://youtube.com/@micanal",
+      "discord": "https://discord.gg/xxxxx"
+    },
+    "personality": "Eres un chatbot amigable y gracioso para Mi Canal. Responde siempre en español, de forma breve y entretenida."
+  }'
+```
+
 ---
 
-## Support
+## API Reference
 
-For any issues or questions, please join our [Discord community](https://discord.gg/pcxybrpDx6).
+### Chat
 
-Thank you for using the ChatGPT Twitch Bot! Your support is greatly appreciated. ☕ [Buy me a coffee](https://www.buymeacoffee.com/osetinhas) ☕
+#### `POST /chat`
+
+Envía un mensaje de un viewer y recibe la respuesta de la IA.
+
+**Body**
+
+```json
+{ "username": "viewer123", "message": "¿de qué va este juego?" }
+```
+
+**Response**
+
+```json
+{ "response": "¡Es Elden Ring! Un souls-like brutal pero muy adictivo 🎮" }
+```
 
 ---
 
-### Important Notice
+#### `GET /chat/history/:username`
 
-**Cyclic is no longer supported for deployment. Please use Render for deploying this bot.**
+Historial de conversación de un usuario.
+
+#### `DELETE /chat/history/:username`
+
+Borra el historial de un usuario.
 
 ---
+
+### Channel Context
+
+#### `GET /context/channel`
+
+Devuelve el contexto actual del canal.
+
+#### `PUT /context/channel`
+
+Actualiza el contexto del canal. Todos los campos son opcionales.
+
+```json
+{
+  "name": "string",
+  "description": "string",
+  "topics": ["string"],
+  "language": "string",
+  "links": { "key": "url" },
+  "personality": "string (prompt base del sistema)"
+}
+```
+
+---
+
+### Users
+
+#### `GET /context/users`
+
+Todos los usuarios guardados.
+
+#### `GET /context/users/:username`
+
+Datos de un usuario concreto.
+
+#### `PUT /context/users/:username`
+
+Crea o actualiza un usuario.
+
+```json
+{
+  "notes": "Viewer habitual, le encanta el speedrunning",
+  "preferences": { "language": "es", "humor": "alto" },
+  "tags": ["mod", "frecuente"]
+}
+```
+
+#### `DELETE /context/users/:username`
+
+Elimina los datos de un usuario.
+
+---
+
+### FAQs
+
+#### `GET /context/faqs`
+
+Lista todas las FAQs.
+
+#### `POST /context/faqs`
+
+Añade una FAQ.
+
+```json
+{
+  "question": "¿Cuándo streameas?",
+  "answer": "Todos los sábados a las 20:00 CET"
+}
+```
+
+#### `PUT /context/faqs/:id`
+
+Actualiza una FAQ por su ID.
+
+#### `DELETE /context/faqs/:id`
+
+Elimina una FAQ.
+
+---
+
+### Health
+
+#### `GET /health`
+
+Estado del servidor, modelo activo, uptime y modelos disponibles en Ollama.
+
+---
+
+## Almacenamiento de datos
+
+Todo el contexto se guarda como JSON en el directorio `data/` (creado automáticamente):
+
+| Archivo             | Contenido                             |
+| ------------------- | ------------------------------------- |
+| `data/channel.json` | Info del canal y personalidad         |
+| `data/users.json`   | Perfiles de viewers frecuentes        |
+| `data/faqs.json`    | Entradas FAQ                          |
+| `data/history.json` | Historial de conversación por usuario |
+
+---
+
+## Cambiar de modelo
+
+Para usar otro modelo de Ollama basta con cambiarlo en la variable de entorno:
+
+```bash
+# Descargar el nuevo modelo
+ollama pull mistral
+
+# Cambiar la variable y reiniciar
+MODEL_NAME=mistral npm start
+```
+
+Modelos recomendados para live chat (respuestas rápidas): `llama3`, `mistral`, `gemma2`.
