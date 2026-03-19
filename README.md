@@ -80,6 +80,8 @@ Ejemplo completo en `.env.example`.
 | `HISTORY_LENGTH` | `8` | Turns historicos por usuario |
 | `DOMAIN` | `example.com` | Dominio para HTTPS con Caddy |
 | `ACME_EMAIL` | `you@example.com` | Email para certificados TLS |
+| `PUID` | `1000` | UID del usuario host para escribir `./data` |
+| `PGID` | `1000` | GID del usuario host para escribir `./data` |
 | `NIGHTBOT_TOKEN` | `change_me_long_secret` | Token obligatorio para `/gpt` |
 | `TRUST_PROXY` | `false` | Si hay reverse proxy |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Ventana rate-limit |
@@ -280,6 +282,17 @@ docker compose restart yt-chatbot
 - Pull manual:
   ```bash
   docker exec -it ollama ollama pull llama3.2:3b
+  ```
+
+### `EACCES: permission denied, open '/app/data/channel.json'`
+
+- El bind mount `./data:/app/data` no tiene permisos para el usuario del contenedor.
+- Alinea UID/GID en `.env` y corrige permisos:
+  ```bash
+  mkdir -p data
+  sudo chown -R 1000:1000 data
+  sudo chmod -R u+rwX data
+  docker compose up -d --force-recreate yt-chatbot
   ```
 
 ### `lookup registry.ollama.ai ... server misbehaving`

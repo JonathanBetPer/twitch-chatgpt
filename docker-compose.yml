@@ -26,7 +26,7 @@ services:
     entrypoint: >
       /bin/sh -c "
         echo 'Waiting for Ollama...';
-        until curl -sf http://ollama:11434/api/tags > /dev/null; do sleep 2; done;
+        until ollama list > /dev/null 2>&1; do sleep 2; done;
         echo 'Pulling ${MODEL_NAME:-llama3.2:3b}...';
         ollama pull ${MODEL_NAME:-llama3.2:3b};
         echo 'Done.';
@@ -42,6 +42,7 @@ services:
       dockerfile: Dockerfile
     container_name: yt-chatbot
     restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       - OLLAMA_URL=http://ollama:11434
       - MODEL_NAME=${MODEL_NAME:-llama3.2:3b}
