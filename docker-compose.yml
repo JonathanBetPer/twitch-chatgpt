@@ -42,8 +42,6 @@ services:
       dockerfile: Dockerfile
     container_name: yt-chatbot
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     environment:
       - OLLAMA_URL=http://ollama:11434
       - MODEL_NAME=${MODEL_NAME:-llama3.2:3b}
@@ -71,5 +69,24 @@ services:
       timeout: 5s
       retries: 3
 
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - yt-chatbot
+
 volumes:
   ollama_data:
+  caddy_data:
+  caddy_config:

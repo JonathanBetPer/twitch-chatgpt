@@ -39,6 +39,35 @@ curl http://localhost:3000/health
 curl "http://localhost:3000/gpt/testUser:Hola?token=TU_TOKEN"
 ```
 
+## HTTPS con Caddy (recomendado para produccion)
+
+1) En `.env` define:
+
+```env
+DOMAIN=tu-dominio.com
+ACME_EMAIL=tu-email@dominio.com
+```
+
+2) Asegura DNS del dominio apuntando al servidor y puertos `80/443` abiertos.
+
+3) Levanta proxy TLS:
+
+```bash
+docker compose up -d caddy
+```
+
+4) Prueba endpoint publico:
+
+```bash
+curl "https://tu-dominio.com/health?token=TU_TOKEN"
+```
+
+NightBot:
+
+```text
+$(urlfetch https://tu-dominio.com/gpt/"$(user):$(query)"?token=TU_TOKEN)
+```
+
 ## Variables de entorno
 
 Ejemplo completo en `.env.example`.
@@ -49,6 +78,8 @@ Ejemplo completo en `.env.example`.
 | `OLLAMA_URL` | `http://ollama:11434` | URL de Ollama |
 | `MODEL_NAME` | `llama3.2:3b` | Modelo |
 | `HISTORY_LENGTH` | `8` | Turns historicos por usuario |
+| `DOMAIN` | `example.com` | Dominio para HTTPS con Caddy |
+| `ACME_EMAIL` | `you@example.com` | Email para certificados TLS |
 | `NIGHTBOT_TOKEN` | `change_me_long_secret` | Token obligatorio para `/gpt` |
 | `TRUST_PROXY` | `false` | Si hay reverse proxy |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | Ventana rate-limit |
@@ -204,7 +235,7 @@ curl -X POST -H "x-nightbot-token: TU_TOKEN" \
 Ejemplo:
 
 ```bash
-curl http://localhost:3000/health
+curl "http://localhost:3000/health?token=TU_TOKEN"
 ```
 
 ## Estructura de datos persistente

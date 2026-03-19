@@ -1,0 +1,7 @@
+{$DOMAIN} {
+  encode gzip zstd
+
+  reverse_proxy yt-chatbot:3000
+
+  tls {$ACME_EMAIL}
+}
