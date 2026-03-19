@@ -1,22 +1,21 @@
 import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
 import { OllamaOperations } from "./ollama_operations.js";
 import { ContextManager } from "./context_manager.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 const app = express();
 app.use(express.json({ limit: "1mb" }));
-app.use(express.static(path.join(__dirname, "public")));
-app.set("view engine", "ejs");
-app.set("views", path.join(__dirname, "views"));
 
 // ── Environment variables ────────────────────────────────────────────────────
 const MODEL_NAME = process.env.MODEL_NAME || "llama3";
 const HISTORY_LENGTH = parseInt(process.env.HISTORY_LENGTH, 10) || 10;
 const PORT = process.env.PORT || 3000;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+const NIGHTBOT_TOKEN = process.env.NIGHTBOT_TOKEN || "";
+const TRUST_PROXY = process.env.TRUST_PROXY === "true";
+const RATE_LIMIT_WINDOW_MS =
+  parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 60_000;
+const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX, 10) || 20;
+const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS, 10) || 12000;
 
 // ── Initialise managers ──────────────────────────────────────────────────────
 const contextManager = new ContextManager();
@@ -25,11 +24,105 @@ const ollamaOps = new OllamaOperations(
   HISTORY_LENGTH,
   contextManager
 );
+app.set("trust proxy", TRUST_PROXY);
 
-// ── Dashboard UI ─────────────────────────────────────────────────────────────
-app.get("/", (_req, res) =>
-  res.render("dashboard", { model: MODEL_NAME, ollamaUrl: OLLAMA_URL })
-);
+const requestBuckets = new Map();
+
+function nowMs() {
+  return Date.now();
+}
+
+function cleanInput(text) {
+  return String(text || "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseNightbotInput(raw) {
+  const input = cleanInput(raw);
+  if (!input) return { username: "viewer", message: "" };
+
+  const sep = input.indexOf(":");
+  if (sep === -1) return { username: "viewer", message: input };
+
+  const username = cleanInput(input.slice(0, sep)).slice(0, 64) || "viewer";
+  const message = cleanInput(input.slice(sep + 1)).slice(0, 350);
+  return { username, message };
+}
+
+function verifyNightbotToken(req, res, next) {
+  if (!NIGHTBOT_TOKEN) {
+    return res.status(503).json({ error: "Bot not configured." });
+  }
+
+  const token = String(
+    req.query.token ||
+      req.headers["x-nightbot-token"] ||
+      req.headers.authorization?.replace(/^Bearer\s+/i, "") ||
+      ""
+  );
+  if (!token || token !== NIGHTBOT_TOKEN) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next();
+}
+
+function rateLimitByIp(req, res, next) {
+  const key = cleanInput(req.ip) || "unknown-ip";
+  const ts = nowMs();
+  const bucket = requestBuckets.get(key) || { start: ts, count: 0 };
+
+  if (ts - bucket.start > RATE_LIMIT_WINDOW_MS) {
+    bucket.start = ts;
+    bucket.count = 0;
+  }
+
+  bucket.count += 1;
+  requestBuckets.set(key, bucket);
+  if (bucket.count > RATE_LIMIT_MAX) {
+    return res.status(429).type("text/plain").send("Too many requests");
+  }
+  next();
+}
+
+async function chatWithTimeout(username, message) {
+  return Promise.race([
+    ollamaOps.chat(username, message),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Upstream timeout")), OLLAMA_TIMEOUT_MS)
+    ),
+  ]);
+}
+
+function maybeQueueLearningCandidate(username, message, response) {
+  // Heuristic: only short explicit questions are proposed as FAQ candidates.
+  if (!message.endsWith("?")) return;
+  if (message.length < 8 || message.length > 220) return;
+
+  contextManager.addLearningCandidate({
+    type: "faq",
+    source: "nightbot_chat",
+    username,
+    prompt: message,
+    proposed: {
+      question: message,
+      answer: response,
+    },
+  });
+}
+
+// Protect all API endpoints with NIGHTBOT_TOKEN.
+app.use(verifyNightbotToken);
+
+app.get("/", (_req, res) => {
+  res.json({
+    name: "YouTube + NightBot + Ollama API",
+    status: "ok",
+    model: MODEL_NAME,
+    docs: "See README.md for endpoints and examples.",
+  });
+});
 
 // ── CHAT ─────────────────────────────────────────────────────────────────────
 
@@ -54,6 +147,32 @@ app.post("/chat", async (req, res) => {
     res
       .status(500)
       .json({ error: "Failed to generate response.", detail: err.message });
+  }
+});
+
+/**
+ * GET /gpt/:input
+ * GET /gpt?input=<input>
+ * input format expected: "username:message"
+ * Returns plain text for NightBot urlfetch compatibility.
+ */
+app.get("/gpt/:input?", rateLimitByIp, async (req, res) => {
+  const rawInput = req.params.input || req.query.input || req.query.q || "";
+  const { username, message } = parseNightbotInput(rawInput);
+
+  if (!message) {
+    return res.status(400).type("text/plain").send("Missing message");
+  }
+
+  try {
+    const response = await chatWithTimeout(username, message);
+    const safeResponse = cleanInput(response).slice(0, 420);
+    contextManager.addToHistory(username, message, safeResponse);
+    maybeQueueLearningCandidate(username, message, safeResponse);
+    return res.type("text/plain").send(safeResponse);
+  } catch (err) {
+    console.error("[/gpt]", err.message);
+    return res.status(502).type("text/plain").send("AI unavailable");
   }
 });
 
@@ -133,6 +252,31 @@ app.delete("/context/faqs/:id", (req, res) => {
   res.json({ message: "FAQ deleted." });
 });
 
+// ── Learning Queue (admin only) ──────────────────────────────────────────────
+
+app.get("/learning/queue", (req, res) => {
+  const status = req.query.status ? String(req.query.status) : undefined;
+  const queue = contextManager.getLearningQueue(status);
+  res.json({ total: queue.length, queue });
+});
+
+app.post("/learning/queue/:id/approve", (req, res) => {
+  try {
+    const approved = contextManager.approveLearningItem(req.params.id);
+    if (!approved) return res.status(404).json({ error: "Item not found." });
+    res.json({ message: "Learning item approved.", item: approved });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/learning/queue/:id/reject", (req, res) => {
+  const reason = cleanInput(req.body?.reason || "");
+  const rejected = contextManager.rejectLearningItem(req.params.id, reason);
+  if (!rejected) return res.status(404).json({ error: "Item not found." });
+  res.json({ message: "Learning item rejected.", item: rejected });
+});
+
 // ── HEALTH ───────────────────────────────────────────────────────────────────
 
 app.get("/health", async (_req, res) => {
@@ -151,6 +295,9 @@ app.get("/health", async (_req, res) => {
 app.listen(PORT, async () => {
   console.log(`✅  YouTube Chatbot API → http://localhost:${PORT}`);
   console.log(`🤖  Ollama: ${OLLAMA_URL}  |  Model: ${MODEL_NAME}`);
+  console.log(
+    `🔐  NightBot token ${NIGHTBOT_TOKEN ? "configured" : "missing"} | Rate limit: ${RATE_LIMIT_MAX}/${RATE_LIMIT_WINDOW_MS}ms`
+  );
 
   const check = await OllamaOperations.healthCheck();
   if (!check.ok) {

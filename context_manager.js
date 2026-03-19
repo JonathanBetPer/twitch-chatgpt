@@ -14,6 +14,7 @@ const FILES = {
   users: path.join(DATA_DIR, "users.json"),
   faqs: path.join(DATA_DIR, "faqs.json"),
   history: path.join(DATA_DIR, "history.json"),
+  learningQueue: path.join(DATA_DIR, "learning_queue.json"),
 };
 
 function readJSON(file, defaultValue) {
@@ -46,6 +47,7 @@ export class ContextManager {
     if (!fs.existsSync(FILES.users)) writeJSON(FILES.users, {});
     if (!fs.existsSync(FILES.faqs)) writeJSON(FILES.faqs, []);
     if (!fs.existsSync(FILES.history)) writeJSON(FILES.history, {});
+    if (!fs.existsSync(FILES.learningQueue)) writeJSON(FILES.learningQueue, []);
   }
 
   // ── Channel ──────────────────────────────────────────────────────────────
@@ -218,5 +220,82 @@ export class ContextManager {
       messages.push({ role: "assistant", content: turn.bot });
     }
     return messages;
+  }
+
+  // ── Learning Queue ────────────────────────────────────────────────────────
+
+  getLearningQueue(status) {
+    const queue = readJSON(FILES.learningQueue, []);
+    if (!status) return queue;
+    return queue.filter((item) => item.status === status);
+  }
+
+  addLearningCandidate(candidate) {
+    const queue = this.getLearningQueue();
+    const item = {
+      id: randomUUID(),
+      type: candidate.type || "faq",
+      source: candidate.source || "chat",
+      username: candidate.username || "",
+      prompt: candidate.prompt || "",
+      proposed: candidate.proposed || {},
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+
+    queue.push(item);
+    writeJSON(FILES.learningQueue, queue);
+    return item;
+  }
+
+  approveLearningItem(id) {
+    const queue = this.getLearningQueue();
+    const idx = queue.findIndex((item) => item.id === id);
+    if (idx === -1) return null;
+
+    const item = queue[idx];
+    if (item.status !== "pending") return item;
+
+    if (item.type === "faq") {
+      const question = item.proposed?.question?.trim();
+      const answer = item.proposed?.answer?.trim();
+      if (!question || !answer) {
+        throw new Error("Invalid FAQ candidate.");
+      }
+      this.addFAQ(question, answer);
+    } else if (item.type === "user_note") {
+      const username = item.username?.trim();
+      const notes = item.proposed?.notes?.trim();
+      if (!username || !notes) {
+        throw new Error("Invalid user note candidate.");
+      }
+      this.upsertUser(username, { notes });
+    }
+
+    queue[idx] = {
+      ...item,
+      status: "approved",
+      approvedAt: new Date().toISOString(),
+    };
+    writeJSON(FILES.learningQueue, queue);
+    return queue[idx];
+  }
+
+  rejectLearningItem(id, reason = "") {
+    const queue = this.getLearningQueue();
+    const idx = queue.findIndex((item) => item.id === id);
+    if (idx === -1) return null;
+
+    const item = queue[idx];
+    if (item.status !== "pending") return item;
+
+    queue[idx] = {
+      ...item,
+      status: "rejected",
+      rejectedAt: new Date().toISOString(),
+      ...(reason ? { reason } : {}),
+    };
+    writeJSON(FILES.learningQueue, queue);
+    return queue[idx];
   }
 }

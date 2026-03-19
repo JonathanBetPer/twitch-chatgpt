@@ -1,223 +1,281 @@
-# YouTube AI Chatbot API
+# YouTube + NightBot + Ollama API
 
-AI-powered chatbot for YouTube live chat. Exposes a simple REST API so any external system (StreamElements, bots, scripts…) can request responses.
+API sencilla para conectar NightBot de YouTube con una IA local en Ollama.
+Pensada para servidores Linux (incluido ARM sin GPU), con enfoque de seguridad y aprendizaje semi-automatico por cola de aprobacion.
 
----
+Estado actual: este proyecto es **API-only**. No incluye dashboard web, vistas EJS ni assets `public/`.
 
-## Features
+## Que hace este proyecto
 
-- **Contextual AI replies** via Ollama (llama3 by default) — 100% local, no API keys needed
-- **Channel context** — teach the bot about your channel, topics and links
-- **Per-user memory** — store notes and preferences for frequent viewers
-- **FAQs** — predefined Q&A pairs injected into every prompt
-- **Conversation history** — last N turns remembered per user
-- **Dashboard UI** at `/`
+- Responde mensajes de chat con IA local (`/gpt`) compatible con `$(urlfetch ...)` de NightBot.
+- Usa contexto del canal para mejorar respuestas (descripcion, temas, links, personalidad).
+- Guarda memoria por usuario y FAQs.
+- Registra historial por viewer.
+- Crea una cola de aprendizaje (`pending`) para aprobar/rechazar informacion antes de usarla.
+- Expone endpoints REST para administrar todo.
 
----
+## Requisitos
 
-## Setup
+- Docker + Docker Compose (recomendado)
+- o Node.js 20+ y Ollama instalado en host
+- 24 GB RAM (tu caso) recomendado para modelos pequenos/medianos
 
-### 1. Clone & install
-
-```bash
-git clone <your-repo>
-cd yt-chatbot
-npm install
-```
-
-### 2. Instalar y arrancar Ollama
+## Quick Start (Docker)
 
 ```bash
-# Instalar Ollama (Linux/Mac)
-curl -fsSL https://ollama.com/install.sh | sh
+cp .env.example .env
+# Edita tokens y modelo
 
-# Descargar el modelo
-ollama pull llama3
-
-# Arrancar el servidor (si no está ya corriendo)
-ollama serve
+docker compose build
+docker compose up -d ollama
+docker compose run --rm ollama-pull
+docker compose up -d yt-chatbot
 ```
 
-### 3. Variables de entorno
-
-| Variable         | Default                  | Description                       |
-| ---------------- | ------------------------ | --------------------------------- |
-| `OLLAMA_URL`     | `http://localhost:11434` | URL del servidor Ollama           |
-| `MODEL_NAME`     | `llama3`                 | Modelo a usar                     |
-| `HISTORY_LENGTH` | `10`                     | Turns de conversación por usuario |
-| `PORT`           | `3000`                   | Puerto HTTP                       |
-
-### 4. Arrancar el bot
+Verificacion:
 
 ```bash
-npm start
-# o para desarrollo (auto-restart):
-npm run dev
+curl http://localhost:3000/health
+curl "http://localhost:3000/gpt/testUser:Hola?token=TU_TOKEN"
 ```
 
-Al arrancar, el bot verifica automáticamente que Ollama esté disponible y que el modelo esté descargado, mostrando warnings claros si algo falla.
+## Variables de entorno
 
-### 5. Configurar el contexto del canal
+Ejemplo completo en `.env.example`.
+
+| Variable | Default | Uso |
+| --- | --- | --- |
+| `PORT` | `3000` | Puerto de la API |
+| `OLLAMA_URL` | `http://ollama:11434` | URL de Ollama |
+| `MODEL_NAME` | `llama3.2:3b` | Modelo |
+| `HISTORY_LENGTH` | `8` | Turns historicos por usuario |
+| `NIGHTBOT_TOKEN` | `change_me_long_secret` | Token obligatorio para `/gpt` |
+| `TRUST_PROXY` | `false` | Si hay reverse proxy |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Ventana rate-limit |
+| `RATE_LIMIT_MAX` | `20` | Max requests por IP y ventana |
+| `OLLAMA_TIMEOUT_MS` | `12000` | Timeout hacia Ollama |
+| `OLLAMA_TEMPERATURE` | `0.6` | Creatividad |
+| `OLLAMA_NUM_PREDICT` | `96` | Longitud de respuesta |
+| `OLLAMA_REPEAT_PENALTY` | `1.1` | Penalizacion de repeticion |
+
+## Integracion NightBot
+
+Comando recomendado:
+
+```text
+$(urlfetch https://TU_DOMINIO/gpt/"$(user):$(query)"?token=TU_TOKEN)
+```
+
+Comportamiento:
+
+- Token invalido -> `401 Unauthorized`
+- Token valido pero modelo no listo -> `502 AI unavailable`
+- Todo OK -> respuesta en texto plano (sin JSON)
+
+## Flujo de aprendizaje (sin fine-tuning)
+
+Este proyecto no reentrena pesos del modelo. Aprende por contexto persistente:
+
+1. Guardas contexto del canal.
+2. Guardas FAQs y notas de usuarios.
+3. El sistema propone candidatos en `learning_queue`.
+4. Tu apruebas/rechazas manualmente.
+5. Solo lo aprobado entra al contexto real.
+
+Esto es mas seguro y controlable para chat en directo.
+
+## Endpoints principales
+
+### Chat NightBot
+
+- `GET /gpt/:input?token=...`
+- `GET /gpt?input=user:mensaje&token=...`
+
+Respuesta: `text/plain`.
+
+### Chat REST
+
+- `POST /chat`
+  - Body:
+    ```json
+    { "username": "viewer123", "message": "que juego es?" }
+    ```
+  - Response:
+    ```json
+    { "response": "Respuesta corta..." }
+    ```
+
+### Historial
+
+- `GET /chat/history/:username`
+- `DELETE /chat/history/:username`
+
+### Contexto del canal
+
+- `GET /context/channel`
+- `PUT /context/channel`
+
+Ejemplo:
 
 ```bash
 curl -X PUT http://localhost:3000/context/channel \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Mi Canal",
-    "description": "Contenido semanal de tech y gaming",
+    "description": "Streams de tech y gaming",
     "topics": ["tech", "gaming", "tutoriales"],
     "language": "es",
     "links": {
       "youtube": "https://youtube.com/@micanal",
       "discord": "https://discord.gg/xxxxx"
     },
-    "personality": "Eres un chatbot amigable y gracioso para Mi Canal. Responde siempre en español, de forma breve y entretenida."
+    "personality": "Responde breve, en espanol, con tono amigable."
   }'
 ```
 
----
+### Usuarios
 
-## API Reference
+- `GET /context/users`
+- `GET /context/users/:username`
+- `PUT /context/users/:username`
+- `DELETE /context/users/:username`
 
-### Chat
+Ejemplo:
 
-#### `POST /chat`
-
-Envía un mensaje de un viewer y recibe la respuesta de la IA.
-
-**Body**
-
-```json
-{ "username": "viewer123", "message": "¿de qué va este juego?" }
+```bash
+curl -X PUT http://localhost:3000/context/users/viewer123 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "notes": "Le gusta speedrun y soulslikes",
+    "preferences": { "language": "es", "humor": "alto" },
+    "tags": ["frecuente"]
+  }'
 ```
-
-**Response**
-
-```json
-{ "response": "¡Es Elden Ring! Un souls-like brutal pero muy adictivo 🎮" }
-```
-
----
-
-#### `GET /chat/history/:username`
-
-Historial de conversación de un usuario.
-
-#### `DELETE /chat/history/:username`
-
-Borra el historial de un usuario.
-
----
-
-### Channel Context
-
-#### `GET /context/channel`
-
-Devuelve el contexto actual del canal.
-
-#### `PUT /context/channel`
-
-Actualiza el contexto del canal. Todos los campos son opcionales.
-
-```json
-{
-  "name": "string",
-  "description": "string",
-  "topics": ["string"],
-  "language": "string",
-  "links": { "key": "url" },
-  "personality": "string (prompt base del sistema)"
-}
-```
-
----
-
-### Users
-
-#### `GET /context/users`
-
-Todos los usuarios guardados.
-
-#### `GET /context/users/:username`
-
-Datos de un usuario concreto.
-
-#### `PUT /context/users/:username`
-
-Crea o actualiza un usuario.
-
-```json
-{
-  "notes": "Viewer habitual, le encanta el speedrunning",
-  "preferences": { "language": "es", "humor": "alto" },
-  "tags": ["mod", "frecuente"]
-}
-```
-
-#### `DELETE /context/users/:username`
-
-Elimina los datos de un usuario.
-
----
 
 ### FAQs
 
-#### `GET /context/faqs`
+- `GET /context/faqs`
+- `POST /context/faqs`
+- `PUT /context/faqs/:id`
+- `DELETE /context/faqs/:id`
 
-Lista todas las FAQs.
+Ejemplo:
 
-#### `POST /context/faqs`
-
-Añade una FAQ.
-
-```json
-{
-  "question": "¿Cuándo streameas?",
-  "answer": "Todos los sábados a las 20:00 CET"
-}
+```bash
+curl -X POST http://localhost:3000/context/faqs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Cuando hay directo?",
+    "answer": "Sabados 20:00 CET"
+  }'
 ```
 
-#### `PUT /context/faqs/:id`
+### Learning Queue
 
-Actualiza una FAQ por su ID.
+Requiere `NIGHTBOT_TOKEN` (query `?token=` o header `x-nightbot-token`).
 
-#### `DELETE /context/faqs/:id`
+- `GET /learning/queue?status=pending`
+- `POST /learning/queue/:id/approve`
+- `POST /learning/queue/:id/reject`
 
-Elimina una FAQ.
+Ejemplos:
 
----
+```bash
+curl -H "x-nightbot-token: TU_TOKEN" \
+  "http://localhost:3000/learning/queue?status=pending"
+```
+
+```bash
+curl -X POST -H "x-nightbot-token: TU_TOKEN" \
+  "http://localhost:3000/learning/queue/ID_ITEM/approve"
+```
+
+```bash
+curl -X POST -H "x-nightbot-token: TU_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ruido o spam"}' \
+  "http://localhost:3000/learning/queue/ID_ITEM/reject"
+```
 
 ### Health
 
-#### `GET /health`
+- `GET /health`
 
-Estado del servidor, modelo activo, uptime y modelos disponibles en Ollama.
-
----
-
-## Almacenamiento de datos
-
-Todo el contexto se guarda como JSON en el directorio `data/` (creado automáticamente):
-
-| Archivo             | Contenido                             |
-| ------------------- | ------------------------------------- |
-| `data/channel.json` | Info del canal y personalidad         |
-| `data/users.json`   | Perfiles de viewers frecuentes        |
-| `data/faqs.json`    | Entradas FAQ                          |
-| `data/history.json` | Historial de conversación por usuario |
-
----
-
-## Cambiar de modelo
-
-Para usar otro modelo de Ollama basta con cambiarlo en la variable de entorno:
+Ejemplo:
 
 ```bash
-# Descargar el nuevo modelo
-ollama pull mistral
-
-# Cambiar la variable y reiniciar
-MODEL_NAME=mistral npm start
+curl http://localhost:3000/health
 ```
 
-Modelos recomendados para live chat (respuestas rápidas): `llama3`, `mistral`, `gemma2`.
+## Estructura de datos persistente
+
+Se guarda en `data/`:
+
+- `data/channel.json`
+- `data/users.json`
+- `data/faqs.json`
+- `data/history.json`
+- `data/learning_queue.json`
+
+## Modelos recomendados (ARM sin GPU)
+
+- `llama3.2:3b` (equilibrado)
+- `gemma2:2b` (mas ligero)
+- `mistral:7b` (mas calidad, mas latencia)
+
+Cambio rapido de modelo:
+
+```bash
+# en .env
+MODEL_NAME=gemma2:2b
+
+docker exec -it ollama ollama pull gemma2:2b
+docker compose restart yt-chatbot
+```
+
+## Troubleshooting
+
+### `Unauthorized` en `/gpt`
+
+- Token no coincide con `NIGHTBOT_TOKEN` cargado en contenedor.
+- Revisa `.env` y reinicia:
+  ```bash
+  docker compose up -d --force-recreate yt-chatbot
+  ```
+
+### `AI unavailable`
+
+- Ollama reachable pero modelo no descargado.
+- Pull manual:
+  ```bash
+  docker exec -it ollama ollama pull llama3.2:3b
+  ```
+
+### `lookup registry.ollama.ai ... server misbehaving`
+
+- Problema DNS del contenedor Ollama.
+- Ya hay `dns` publico en `docker-compose.yml`.
+- Reinicia stack:
+  ```bash
+  docker compose down
+  docker compose up -d ollama
+  ```
+
+### Docker permission denied (`/var/run/docker.sock`)
+
+```bash
+sudo usermod -aG docker $USER
+newgrp docker
+docker version
+```
+
+## Seguridad recomendada
+
+- Usa HTTPS (Nginx/Caddy/Traefik) delante de la API.
+- Manten `NIGHTBOT_TOKEN` largo y privado.
+- Rota el token periodicamente.
+- No expongas la API publicamente sin control adicional (IP allowlist/reverse proxy).
+
+## Licencia
+
+ISC

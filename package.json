@@ -1,6 +1,6 @@
 {
   "name": "yt-chatbot",
-  "version": "2.1.0",
+  "version": "2.1.0-jbetper",
   "description": "AI-powered YouTube chatbot using Ollama (llama3) with REST API, per-user context, FAQs and conversation history.",
   "main": "index.js",
   "type": "module",
@@ -8,10 +8,9 @@
     "start": "node index.js",
     "dev": "node --watch index.js"
   },
-  "author": "",
+  "author": "jbetper",
   "license": "ISC",
   "dependencies": {
-    "ejs": "^3.1.9",
     "express": "^4.18.2",
     "node-fetch": "^3.3.2"
   }

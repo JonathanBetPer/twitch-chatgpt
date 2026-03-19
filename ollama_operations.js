@@ -1,6 +1,11 @@
 import fetch from "node-fetch";
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+const OLLAMA_TEMPERATURE = parseFloat(process.env.OLLAMA_TEMPERATURE || "0.6");
+const OLLAMA_NUM_PREDICT = parseInt(process.env.OLLAMA_NUM_PREDICT, 10) || 96;
+const OLLAMA_REPEAT_PENALTY = parseFloat(
+  process.env.OLLAMA_REPEAT_PENALTY || "1.1"
+);
 
 export class OllamaOperations {
   constructor(modelName, historyLength, contextManager) {
@@ -43,9 +48,9 @@ export class OllamaOperations {
       messages,
       stream: false,
       options: {
-        temperature: 0.8,
-        num_predict: 150, // Keep replies short for live chat
-        repeat_penalty: 1.1,
+        temperature: OLLAMA_TEMPERATURE,
+        num_predict: OLLAMA_NUM_PREDICT, // Keep replies short for live chat
+        repeat_penalty: OLLAMA_REPEAT_PENALTY,
       },
     };
 

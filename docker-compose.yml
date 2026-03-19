@@ -1,5 +1,4 @@
 services:
-  # ── Ollama ────────────────────────────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -9,15 +8,17 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     environment:
-      - OLLAMA_NUM_PARALLEL=1 # one request at a time (optimal for single chatbot)
-      - OLLAMA_MAX_LOADED_MODELS=1 # keep only one model in RAM
-      - OLLAMA_KEEP_ALIVE=5m # unload model after 5 min idle to free RAM
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_KEEP_ALIVE=5m
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     deploy:
       resources:
         limits:
-          memory: 20G # leaves ~4 GB for OS + bot overhead
+          memory: 20G
 
-  # ── Model pull (runs once, then exits) ───────────────────────────────────
   ollama-pull:
     image: ollama/ollama:latest
     container_name: ollama-pull
@@ -26,8 +27,8 @@ services:
       /bin/sh -c "
         echo 'Waiting for Ollama...';
         until curl -sf http://ollama:11434/api/tags > /dev/null; do sleep 2; done;
-        echo 'Pulling ${MODEL_NAME:-llama3:8b}...';
-        ollama pull ${MODEL_NAME:-llama3:8b};
+        echo 'Pulling ${MODEL_NAME:-llama3.2:3b}...';
+        ollama pull ${MODEL_NAME:-llama3.2:3b};
         echo 'Done.';
       "
     environment:
@@ -35,31 +36,40 @@ services:
     depends_on:
       - ollama
 
-  # ── YouTube Chatbot API ───────────────────────────────────────────────────
   yt-chatbot:
     build:
       context: .
-      dockerfile: api.Dockerfile
-      platforms:
-        - linux/arm64
+      dockerfile: Dockerfile
     container_name: yt-chatbot
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - MODEL_NAME=${MODEL_NAME:-llama3:8b}
+      - MODEL_NAME=${MODEL_NAME:-llama3.2:3b}
       - HISTORY_LENGTH=${HISTORY_LENGTH:-10}
       - PORT=3000
+      - NIGHTBOT_TOKEN=${NIGHTBOT_TOKEN}
+      - TRUST_PROXY=${TRUST_PROXY:-false}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-20}
+      - OLLAMA_TIMEOUT_MS=${OLLAMA_TIMEOUT_MS:-12000}
+      - OLLAMA_TEMPERATURE=${OLLAMA_TEMPERATURE:-0.6}
+      - OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-96}
+      - OLLAMA_REPEAT_PENALTY=${OLLAMA_REPEAT_PENALTY:-1.1}
     volumes:
-      - chatbot_data:/app/data
+      - ./data:/app/data
     depends_on:
       - ollama
     deploy:
       resources:
         limits:
           memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   ollama_data:
-  chatbot_data:
