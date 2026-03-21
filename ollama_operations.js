@@ -23,23 +23,10 @@ export class OllamaOperations {
    * @returns {Promise<string>}
    */
   async chat(username, message) {
-    // 1. System prompt = channel context + FAQs + personality
     const systemPrompt = this.contextManager.buildSystemPrompt();
 
-    // 2. Per-user context appended to system prompt
-    const userCtx = this.contextManager.buildUserContext(username);
-    const fullSystem = userCtx ? `${systemPrompt}\n${userCtx}` : systemPrompt;
-
-    // 3. Conversation history as Ollama message array
-    const historyMessages = this.contextManager.getHistoryAsMessages(
-      username,
-      this.historyLength
-    );
-
-    // 4. Current user message
     const messages = [
-      { role: "system", content: fullSystem },
-      ...historyMessages,
+      { role: "system", content: systemPrompt },
       { role: "user", content: `${username}: ${message}` },
     ];
 

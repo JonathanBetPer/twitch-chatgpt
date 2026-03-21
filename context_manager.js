@@ -68,34 +68,7 @@ export class ContextManager {
    */
   buildSystemPrompt() {
     const ch = this.getChannelContext();
-    const faqs = this.getAllFAQs();
-
-    let prompt = ch.personality || "You are a helpful YouTube chatbot.";
-
-    if (ch.name) prompt += `\n\nChannel name: ${ch.name}`;
-    if (ch.description) prompt += `\nChannel description: ${ch.description}`;
-    if (ch.topics?.length) prompt += `\nMain topics: ${ch.topics.join(", ")}`;
-    if (ch.language) prompt += `\nAlways respond in: ${ch.language}`;
-
-    if (ch.links && Object.keys(ch.links).length) {
-      const linkStr = Object.entries(ch.links)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(", ");
-      prompt += `\nChannel links: ${linkStr}`;
-    }
-
-    if (faqs.length) {
-      prompt += "\n\nKnown FAQs (use these for accurate answers):";
-      faqs.forEach((f) => {
-        prompt += `\nQ: ${f.question}\nA: ${f.answer}`;
-      });
-    }
-
-    prompt +=
-      "\n\nKeep responses short (max 2 sentences) and suitable for live chat.";
-    prompt += '\nNever start a message with "!" or "/".';
-
-    return prompt;
+    return ch.personality || "You are a helpful YouTube chatbot.";
   }
 
   // ── Users ────────────────────────────────────────────────────────────────
