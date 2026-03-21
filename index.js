@@ -295,25 +295,33 @@ app.get("/health", async (_req, res) => {
 app.listen(PORT, async () => {
   console.log(`✅  YouTube Chatbot API → http://localhost:${PORT}`);
   console.log(`🤖  Ollama: ${OLLAMA_URL}  |  Model: ${MODEL_NAME}`);
-  console.log(
-    `🔐  NightBot token ${NIGHTBOT_TOKEN ? "configured" : "missing"} | Rate limit: ${RATE_LIMIT_MAX}/${RATE_LIMIT_WINDOW_MS}ms`
-  );
 
   const check = await OllamaOperations.healthCheck();
   if (!check.ok) {
     console.warn(`⚠️  Ollama not reachable at ${OLLAMA_URL}: ${check.error}`);
-    console.warn("    Make sure Ollama is running:  ollama serve");
   } else {
     const hasModel = check.models.some((m) => m.startsWith(MODEL_NAME));
     if (!hasModel) {
-      console.warn(
-        `⚠️  Model "${MODEL_NAME}" not found. Available: ${
-          check.models.join(", ") || "none"
-        }`
-      );
-      console.warn(`    Run: ollama pull ${MODEL_NAME}`);
+      console.warn(`⚠️  Model "${MODEL_NAME}" not found.`);
     } else {
-      console.log(`✅  Ollama OK — model "${MODEL_NAME}" ready`);
+      console.log(`✅  Ollama OK — warming up model "${MODEL_NAME}"...`);
+      // Warmup: precarga el modelo en RAM para que la primera llamada real sea rápida
+      try {
+        await fetch(`${OLLAMA_URL}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: MODEL_NAME,
+            messages: [{ role: "user", content: "hi" }],
+            stream: false,
+            options: { num_predict: 1 },
+          }),
+          signal: AbortSignal.timeout(90_000),
+        });
+        console.log(`🔥  Model warmed up and ready`);
+      } catch (err) {
+        console.warn(`⚠️  Warmup failed: ${err.message}`);
+      }
     }
   }
 });
