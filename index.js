@@ -291,6 +291,72 @@ app.get("/health", async (_req, res) => {
   });
 });
 
+// ── ADMIN UI ─────────────────────────────────────────────────────────────────
+app.get("/admin", (req, res) => {
+  const token = req.query.token || "";
+  if (!NIGHTBOT_TOKEN || token !== NIGHTBOT_TOKEN) {
+    return res.status(401).send("Unauthorized");
+  }
+  res.send(`<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manolo Admin</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 16px; }
+    h1 { font-size: 1.2rem; margin-bottom: 12px; color: #a78bfa; }
+    textarea { width: 100%; height: 60vh; background: #1e1e1e; color: #eee; border: 1px solid #444; border-radius: 8px; padding: 12px; font-size: 0.9rem; line-height: 1.5; resize: vertical; }
+    button { margin-top: 12px; width: 100%; padding: 14px; background: #7c3aed; color: white; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; }
+    button:active { background: #6d28d9; }
+    #status { margin-top: 10px; text-align: center; font-size: 0.9rem; min-height: 20px; }
+    .ok { color: #4ade80; }
+    .err { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>🤖 Manolo — Editar personality</h1>
+  <textarea id="personality" placeholder="Escribe el personality de Manolo..."></textarea>
+  <button onclick="save()">💾 Guardar</button>
+  <div id="status"></div>
+  <script>
+    const TOKEN = new URLSearchParams(location.search).get('token');
+    const status = document.getElementById('status');
+
+    async function load() {
+      const res = await fetch('/context/channel?token=' + TOKEN);
+      const data = await res.json();
+      document.getElementById('personality').value = data.personality || '';
+    }
+
+    async function save() {
+      status.textContent = 'Guardando...';
+      status.className = '';
+      try {
+        const res = await fetch('/context/channel?token=' + TOKEN, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ personality: document.getElementById('personality').value })
+        });
+        if (res.ok) {
+          status.textContent = '✅ Guardado correctamente';
+          status.className = 'ok';
+        } else {
+          throw new Error(res.status);
+        }
+      } catch (e) {
+        status.textContent = '❌ Error al guardar: ' + e.message;
+        status.className = 'err';
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>`);
+});
+
 // ── START ────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`✅  YouTube Chatbot API → http://localhost:${PORT}`);

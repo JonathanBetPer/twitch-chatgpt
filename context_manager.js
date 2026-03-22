@@ -68,6 +68,13 @@ export class ContextManager {
    */
   buildSystemPrompt() {
     const ch = this.getChannelContext();
+    
+    // Carga desde archivo si existe
+    const promptFile = path.join(__dirname, 'data', 'personality.txt');
+    if (fs.existsSync(promptFile)) {
+      return fs.readFileSync(promptFile, 'utf8').trim();
+    }
+    
     return ch.personality || "You are a helpful YouTube chatbot.";
   }
 
