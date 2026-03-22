@@ -1,5 +1,5 @@
 import express from "express";
-
+import fs from 'fs';
 import { OllamaOperations } from "./ollama_operations.js";
 import { ContextManager } from "./context_manager.js";
 
