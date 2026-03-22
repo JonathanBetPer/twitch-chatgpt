@@ -67,14 +67,12 @@ export class ContextManager {
    * Builds the system prompt string by combining channel context + FAQs.
    */
   buildSystemPrompt() {
-    const ch = this.getChannelContext();
-    
-    // Carga desde archivo si existe
-    const promptFile = path.join(__dirname, 'data', 'personality.txt');
+    const promptFile = path.join(DATA_DIR, 'personality.txt');
     if (fs.existsSync(promptFile)) {
       return fs.readFileSync(promptFile, 'utf8').trim();
     }
-    
+    // fallback al campo personality del channel.json
+    const ch = this.getChannelContext();
     return ch.personality || "You are a helpful YouTube chatbot.";
   }
 

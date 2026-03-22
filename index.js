@@ -1,8 +1,10 @@
 import express from "express";
+
 import { OllamaOperations } from "./ollama_operations.js";
 import { ContextManager } from "./context_manager.js";
 
 const app = express();
+app.use(express.text({ limit: '64kb' }));
 app.use(express.json({ limit: "1mb" }));
 
 // ── Environment variables ────────────────────────────────────────────────────
@@ -291,6 +293,31 @@ app.get("/health", async (_req, res) => {
   });
 });
 
+// ── PERSONALITY ───────────────────────────────────────────────────────────────
+const PERSONALITY_FILE = './data/personality.txt';
+
+app.get("/personality", (_req, res) => {
+  try {
+    const text = fs.existsSync(PERSONALITY_FILE)
+      ? fs.readFileSync(PERSONALITY_FILE, 'utf8')
+      : contextManager.getChannelContext().personality || '';
+    res.type('text/plain').send(text);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/personality", (req, res) => {
+  try {
+    const text = typeof req.body === 'string' ? req.body : req.body?.text || '';
+    if (!text.trim()) return res.status(400).json({ error: 'Empty personality.' });
+    fs.writeFileSync(PERSONALITY_FILE, text, 'utf8');
+    res.json({ message: 'Personality updated.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── ADMIN UI ─────────────────────────────────────────────────────────────────
 app.get("/admin", (req, res) => {
   const token = req.query.token || "";
@@ -325,19 +352,18 @@ app.get("/admin", (req, res) => {
     const status = document.getElementById('status');
 
     async function load() {
-      const res = await fetch('/context/channel?token=' + TOKEN);
-      const data = await res.json();
-      document.getElementById('personality').value = data.personality || '';
+      const res = await fetch('/personality?token=' + TOKEN);
+      document.getElementById('personality').value = await res.text();
     }
 
     async function save() {
       status.textContent = 'Guardando...';
       status.className = '';
       try {
-        const res = await fetch('/context/channel?token=' + TOKEN, {
+        const res = await fetch('/personality?token=' + TOKEN, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ personality: document.getElementById('personality').value })
+          headers: { 'Content-Type': 'text/plain' },
+          body: document.getElementById('personality').value
         });
         if (res.ok) {
           status.textContent = '✅ Guardado correctamente';
